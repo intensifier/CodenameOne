@@ -23,7 +23,6 @@
 package com.codename1.system;
 
 import static com.codename1.ui.CN.addNetworkErrorListener;
-import static com.codename1.ui.CN.getCurrentForm;
 import static com.codename1.ui.CN.updateNetworkThreadCount;
 
 import com.codename1.io.Log;
@@ -130,6 +129,7 @@ public class Lifecycle {
         runApp();
     }
 
+    
     /**
      * This method is invoked by start to show the first form of the application
      */
@@ -144,10 +144,10 @@ public class Lifecycle {
      * Callback when the app is suspended
      */
     public void stop() {
-        current = getCurrentForm();
+        current = CN.getCurrentForm();
         if(current instanceof Dialog) {
             ((Dialog)current).dispose();
-            current = getCurrentForm();
+            current = CN.getCurrentForm();
         }
     }
 
@@ -155,5 +155,21 @@ public class Lifecycle {
      * Callback when the app is destroyed
      */
     public void destroy() {
+    }
+    
+    /**
+     * The current form within the application lifecycle which possibly differs from the one in the implementation
+     */
+    protected Form getCurrentForm() {
+        return current;
+    }
+    
+    /**
+     * The current form within the application lifecycle which possibly differs from the one in the implementation
+     *
+     * @param current the new current Form
+     */
+    protected void setCurrentForm(Form current) {
+        this.current = current;
     }
 }

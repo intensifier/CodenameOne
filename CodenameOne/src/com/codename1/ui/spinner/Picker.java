@@ -505,6 +505,16 @@ public class Picker extends Button {
                     if (defaultValue.getTime() > endDate.getTime()) {
                         defaultValue = startDate;
                     }
+                } else if (startDate != null) {
+                    out.setDateRange(startDate, null);
+                    if (defaultValue.getTime() < startDate.getTime()) {
+                        defaultValue = startDate;
+                    }
+                } else if (endDate != null) {
+                    out.setDateRange(null, endDate);
+                    if (defaultValue.getTime() > endDate.getTime()) {
+                        defaultValue = endDate;
+                    }
                 }
                 if (value != null) {
                     out.setValue(value);
@@ -527,8 +537,7 @@ public class Picker extends Button {
             }
             
             private TimeSpinner3D createTimePicker3D() {
-                TimeSpinner3D out = new TimeSpinner3D();
-                out.setMinuteStep(minuteStep);
+                TimeSpinner3D out = new TimeSpinner3D(minuteStep);
                 out.setShowMeridiem(showMeridiem);
                 if (minHour >= 0 && minHour < 24 && maxHour > minHour) {
                     out.setHourRange(minHour, maxHour);
@@ -542,7 +551,7 @@ public class Picker extends Button {
             }
             
             private DateTimeSpinner3D createDateTimePicker3D() {
-                DateTimeSpinner3D out = new DateTimeSpinner3D();
+                DateTimeSpinner3D out = new DateTimeSpinner3D(minuteStep);
                 out.setShowMeridiem(showMeridiem);
                 if (startDate != null) {
                     out.setStartDate(startDate);
@@ -565,7 +574,8 @@ public class Picker extends Button {
                 DurationSpinner3D out = new DurationSpinner3D(
                         type == Display.PICKER_TYPE_DURATION_MINUTES ? DurationSpinner3D.FIELD_MINUTE :
                         type == Display.PICKER_TYPE_DURATION_HOURS ? DurationSpinner3D.FIELD_HOUR :
-                                DurationSpinner3D.FIELD_HOUR | DurationSpinner3D.FIELD_MINUTE
+                                DurationSpinner3D.FIELD_HOUR | DurationSpinner3D.FIELD_MINUTE,
+                        minuteStep
                 );
                 if (value != null) {
                     out.setValue(value);

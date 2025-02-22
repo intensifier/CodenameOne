@@ -1749,15 +1749,29 @@ public class Style {
      * @param rtl flag indicating whether the padding is for an RTL bidi component
      * @param orientation one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
      * @return amount of padding in the given orientation using current units.
-     * @see #getPaddingUnit() 
+     * @see #getPaddingUnit()
+     * @deprecated Use {@link #getPaddingFloatValue(boolean, int)}
      */
     public int getPaddingValue(boolean rtl, int orientation) {
+        return (int)getPaddingFloatValue(rtl, orientation);
+    }
+
+    /**
+     * Returns the Padding in the internal value regardless of the unit
+     *
+     * @param rtl flag indicating whether the padding is for an RTL bidi component
+     * @param orientation one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+     * @return amount of padding in the given orientation using current units.
+     * @see #getPaddingUnit()
+     * @since 8.0
+     */
+    public float getPaddingFloatValue(boolean rtl, int orientation) {
         if (orientation < Component.TOP || orientation > Component.RIGHT) {
             throw new IllegalArgumentException("wrong orientation " + orientation);
         }
 
         if (rtl) {
-        	switch(orientation) {
+            switch(orientation) {
                 case Component.LEFT:
                     orientation = Component.RIGHT;
                     break;
@@ -1767,7 +1781,7 @@ public class Style {
             }
         }
 
-        return (int)padding[orientation];
+        return padding[orientation];
     }
     
     /**
@@ -1795,6 +1809,12 @@ public class Style {
      * @since 7.0
      */
     public void setPaddingUnitLeft(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setPaddingUnitLeft(unit);
+            }
+            return;
+        }
         initPaddingUnits();
         paddingUnit[Component.LEFT] = unit;
     }
@@ -1806,6 +1826,12 @@ public class Style {
      * @since 7.0
      */
     public void setPaddingUnitRight(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setPaddingUnitRight(unit);
+            }
+            return;
+        }
         initPaddingUnits();
         paddingUnit[Component.RIGHT] = unit;
     }
@@ -1817,6 +1843,12 @@ public class Style {
      * @since 7.0
      */
     public void setPaddingUnitTop(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setPaddingUnitTop(unit);
+            }
+            return;
+        }
         initPaddingUnits();
         paddingUnit[Component.TOP] = unit;
     }
@@ -1828,6 +1860,12 @@ public class Style {
      * @since 7.0
      */
     public void setPaddingUnitBottom(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setPaddingUnitBottom(unit);
+            }
+            return;
+        }
         initPaddingUnits();
         paddingUnit[Component.BOTTOM] = unit;
     }
@@ -2241,8 +2279,7 @@ public class Style {
      * @return number of padding pixels in the given orientation
      */
     public int getPadding(boolean rtl, int orientation) {
-        int v = getPaddingValue(rtl, orientation);
-        return convertUnit(paddingUnit, v, orientation);
+        return convertUnit(paddingUnit, getPaddingFloatValue(rtl, orientation), orientation);
     }
 
     private int convertUnit(byte[] unitType, float v, int orientation) {
@@ -2305,8 +2342,7 @@ public class Style {
      * @return number of margin using the current unit in the given orientation
      */
     public int getMargin(boolean rtl, int orientation) {
-        int v = getMarginValue(rtl, orientation);
-        return convertUnit(marginUnit, v, orientation);
+        return convertUnit(marginUnit, getMarginFloatValue(rtl, orientation), orientation);
     }
 
     /**
@@ -2315,13 +2351,26 @@ public class Style {
      * @param rtl flag indicating whether the padding is for an RTL bidi component
      * @param orientation one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
      * @return number of margin using the current unit in the given orientation
+     * @deprecated Use {@link #getMarginFloatValue(boolean, int)}
      */
     public int getMarginValue(boolean rtl, int orientation) {
+        return (int)getMarginFloatValue(rtl, orientation);
+    }
+
+    /**
+     * Returns the Margin
+     *
+     * @param rtl flag indicating whether the padding is for an RTL bidi component
+     * @param orientation one of: Component.TOP, Component.BOTTOM, Component.LEFT, Component.RIGHT
+     * @return number of margin using the current unit in the given orientation
+     * @since 8.0
+     */
+    public float getMarginFloatValue(boolean rtl, int orientation) {
         if (orientation < Component.TOP || orientation > Component.RIGHT) {
             throw new IllegalArgumentException("wrong orientation " + orientation);
         }
         if (rtl) {
-        	switch(orientation) {
+            switch(orientation) {
                 case Component.LEFT:
                     orientation = Component.RIGHT;
                     break;
@@ -2330,7 +2379,7 @@ public class Style {
                     break;
             }
         }
-        return (int)margin[orientation];
+        return margin[orientation];
     }
 
     /**
@@ -3002,6 +3051,12 @@ public class Style {
      * @since 7.0
      */
     public void setMarginUnitLeft(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setMarginUnitLeft(unit);
+            }
+            return;
+        }
         initMarginUnits();
         marginUnit[Component.LEFT] = unit;
     }
@@ -3013,6 +3068,12 @@ public class Style {
      * @since 7.0
      */
     public void setMarginUnitRight(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setMarginUnitRight(unit);
+            }
+            return;
+        }
         initMarginUnits();
         marginUnit[Component.RIGHT] = unit;
     }
@@ -3024,6 +3085,12 @@ public class Style {
      * @since 7.0
      */
     public void setMarginUnitTop(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setMarginUnitTop(unit);
+            }
+            return;
+        }
         initMarginUnits();
         marginUnit[Component.TOP] = unit;
     }
@@ -3035,6 +3102,12 @@ public class Style {
      * @since 7.0
      */
     public void setMarginUnitBottom(byte unit) {
+        if(proxyTo != null) {
+            for(Style s : proxyTo) {
+                s.setMarginUnitBottom(unit);
+            }
+            return;
+        }
         initMarginUnits();
         marginUnit[Component.BOTTOM] = unit;
     }

@@ -109,10 +109,12 @@ import com.codename1.util.AsyncResource;
 import com.codename1.util.Callback;
 import com.codename1.util.StringUtil;
 import com.codename1.util.SuccessCallback;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.Collections;
+import com.codename1.ui.plaf.DefaultLookAndFeel;
 
 
 /**
@@ -150,6 +152,8 @@ public class IOSImplementation extends CodenameOneImplementation {
     private boolean isActive=false;
     private final ArrayList<Runnable> onActiveListeners = new ArrayList<Runnable>();
     private static BackgroundFetch backgroundFetchCallback;
+
+    private boolean useContentBasedRTLStringDetection = false;
     
     
     /**
@@ -253,11 +257,15 @@ public class IOSImplementation extends CodenameOneImplementation {
         if (rect == null) {
             rect = new Rectangle();
         }
-        int x = nativeInstance.getDisplaySafeInsetLeft();
-        int y = nativeInstance.getDisplaySafeInsetTop();
-        int w = getDisplayWidth() - nativeInstance.getDisplaySafeInsetRight() - x;
-        int h = getDisplayHeight() - nativeInstance.getDisplaySafeInsetBottom() - y;
-        rect.setBounds(x, y, w, h);
+        try {
+            int x = nativeInstance.getDisplaySafeInsetLeft();
+            int y = nativeInstance.getDisplaySafeInsetTop();
+            int w = getDisplayWidth() - nativeInstance.getDisplaySafeInsetRight() - x;
+            int h = getDisplayHeight() - nativeInstance.getDisplaySafeInsetBottom() - y;
+            rect.setBounds(x, y, w, h);
+        } catch (NullPointerException err) {
+            Log.p("Invalid bounds in getDisplaySafeArea, if this message repeats frequently please let us know...");
+        }
         
         return rect;
     }
@@ -338,7 +346,13 @@ public class IOSImplementation extends CodenameOneImplementation {
             return v;
         } 
         return super.getCookiesForURL(url);
-    }    
+    }
+
+    public void setPlatformHint(String key, String value) {
+        if ("platformHint.ios.useContentBasedRTLStringDetection".equals(key)) {
+            useContentBasedRTLStringDetection = Boolean.parseBoolean(value);
+        }
+    }
     
     private boolean textEditorHidden;
     
@@ -916,6 +930,7 @@ public class IOSImplementation extends CodenameOneImplementation {
                         showToolbar = false;
                     }
                     if ( currentEditing != null ){
+                        int align = currentEditing.getStyle().getAlignment();
                         nativeInstance.editStringAt(x,
                                 y,
                                 w,
@@ -931,7 +946,7 @@ public class IOSImplementation extends CodenameOneImplementation {
                                 hintColor,
                                 showToolbar, 
                                 Boolean.TRUE.equals(cmp.getClientProperty("blockCopyPaste")),
-                                currentEditing.getStyle().getAlignment(),
+                                DefaultLookAndFeel.reverseAlignForBidi(cmp, align),
                                 currentEditing.getVerticalAlignment());
                     }
                 }
@@ -1850,17 +1865,25 @@ public class IOSImplementation extends CodenameOneImplementation {
         int l = str.length();
         int max = fnt.getMaxStringLength();
         if(l > max) {
+            boolean rtl = useContentBasedRTLStringDetection
+                ? nativeInstance.isRTLString(str)
+                : UIManager.getInstance().getLookAndFeel().isRTL();
             // really long string split it and draw multiple strings to avoid texture overload
             int one = 1;
             if(l % max == 0) {
                 one = 0;
             }
+            if (rtl) {
+                x += stringWidth(fnt, str);
+            }
             int stringCount = l / max + one;
             for(int iter = 0 ; iter < stringCount ; iter++) {
                 int pos = iter * max;
                 String s = str.substring(pos, Math.min(pos + max, str.length()));
-                ng.nativeDrawString(ng.color, ng.alpha, fnt.peer, s, x, y);
-                x += stringWidth(fnt, s);
+                int substrWidth = stringWidth(fnt, s);
+                int rtlOffset = rtl ? -substrWidth : 0;
+                ng.nativeDrawString(ng.color, ng.alpha, fnt.peer, s, x + rtlOffset, y);
+                x += (rtl ? -substrWidth : substrWidth);
             }
         } else {
             ng.nativeDrawString(ng.color, ng.alpha, fnt.peer, str, x, y);
@@ -2333,80 +2356,80 @@ public class IOSImplementation extends CodenameOneImplementation {
          * @return The string ID used in the map.
          */
         long getShapeID(Shape shape, Stroke stroke){
-            long id = 0;
-            
-            
-            //float[] bounds = shape.getBounds2D();
-            float x = 0;
-            float y = 0;//bounds[1];
+            long result = 17; // Prime number to start the hash computation
+
+            float referenceX = 0;
+            float referenceY = 0;
             boolean referencePointSet = false;
-            
-            
-            int ctr = 0;
-            //StringBuilder sb = new StringBuilder();
+
             PathIterator it = shape.getPathIterator();
             float[] buf = new float[6];
-            float tx, ty, tx2, ty2, tx3, ty3;
-            
-            //sb.append(it.getWindingRule());
-            id = id ^ it.getWindingRule();
-            //sb.append(";");
-            while ( !it.isDone() ){
-                ctr++;
+
+            result = 31 * result + it.getWindingRule();
+
+            while (!it.isDone()){
                 int type = it.currentSegment(buf);
+
                 if (!referencePointSet && type != PathIterator.SEG_CLOSE) {
                     referencePointSet = true;
-                    x = buf[0];
-                    y = buf[1];
+                    referenceX = buf[0];
+                    referenceY = buf[1];
                 }
-                switch ( type ){
+
+                float tx, ty, tx2, ty2, tx3, ty3;
+
+                switch (type) {
                     case PathIterator.SEG_MOVETO:
-                       tx = buf[0]-x;
-                       ty = buf[1]-y;
-                        //sb.append("M:").append((int)tx).append(",").append((int)ty);
-                       id = id ^ (ctr * (int)tx * (int)ty * type);
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
                         break;
                     case PathIterator.SEG_LINETO:
-                       tx = buf[0]-x;
-                       ty = buf[1]-y;
-                        //sb.append("L:").append((int)tx).append(",").append((int)ty);
-                       id = id ^ (ctr * (int)tx * (int)ty * type);
-                       
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
                         break;
                     case PathIterator.SEG_QUADTO:
-                        tx = buf[0]-x;
-                        ty = buf[1]-y;
-                        tx2 = buf[2]-x;
-                        ty2 = buf[3]-y;
-                        //sb.append("Q:").append((int)tx).append(",").append((int)ty).append(",").append((int)tx2).append(",").append((int)ty2);
-                        id = id ^ (ctr * (int)tx * (int)ty * type + 10 * (int)tx2 * (int)ty2);
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        tx2 = buf[2] - referenceX;
+                        ty2 = buf[3] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
+                        result = 31 * result + Float.floatToIntBits(tx2);
+                        result = 31 * result + Float.floatToIntBits(ty2);
                         break;
                     case PathIterator.SEG_CUBICTO:
-                        tx = buf[0]-x;
-                        ty = buf[1]-y;
-                        tx2 = buf[2]-x;
-                        ty2 = buf[3]-y;
-                        tx3 = buf[4]-x;
-                        ty3= buf[5]-y;
-                        //sb.append("C:").append((int)tx).append(",").append((int)ty).append(",").append((int)tx2).append(",").append((int)ty2)
-                        //        .append(",").append((int)tx3).append(",").append((int)ty3);
-                        id = id ^ (ctr * (int)tx * (int)ty * type  + 10 * (int)tx2 * (int)ty2 + 100 *  (int)tx3  * (int)ty3 );
+                        tx = buf[0] - referenceX;
+                        ty = buf[1] - referenceY;
+                        tx2 = buf[2] - referenceX;
+                        ty2 = buf[3] - referenceY;
+                        tx3 = buf[4] - referenceX;
+                        ty3 = buf[5] - referenceY;
+                        result = 31 * result + Float.floatToIntBits(tx);
+                        result = 31 * result + Float.floatToIntBits(ty);
+                        result = 31 * result + Float.floatToIntBits(tx2);
+                        result = 31 * result + Float.floatToIntBits(ty2);
+                        result = 31 * result + Float.floatToIntBits(tx3);
+                        result = 31 * result + Float.floatToIntBits(ty3);
                         break;
-                        
                     case PathIterator.SEG_CLOSE:
-                        id = id ^ ctr;
-                        
+                        result = 31 * result + type;
+                        break;
                 }
+
                 it.next();
             }
-            if ( stroke != null ){
-                id = id ^ stroke.hashCode();
-                
-                //sb.append(stroke.hashCode()).append(":");
+
+            if (stroke != null) {
+                result = 31 * result + stroke.hashCode();
             }
-            return id;
-            
+
+            return result;
         }
+
     }
     
     
@@ -6853,19 +6876,21 @@ public class IOSImplementation extends CodenameOneImplementation {
     }
 
     class NativeIPhoneView extends PeerComponent {
-        private long[] nativePeer;
+
+        private long nativePeer;
+
         private boolean lightweightMode; 
        
         public NativeIPhoneView(Object nativePeer) {
             super(nativePeer);
-            this.nativePeer = (long[])nativePeer;
-            nativeInstance.retainPeer(this.nativePeer[0]);
+            this.nativePeer = ((long[])nativePeer)[0];
+            nativeInstance.retainPeer(this.nativePeer);
         }
         
         public void finalize() {
-            if(nativePeer != null && nativePeer[0] != 0) {
-                nativeInstance.releasePeer(nativePeer[0]);            
-                nativePeer = null;
+            if(nativePeer != 0) {
+                nativeInstance.releasePeer(nativePeer);
+                nativePeer = 0;
             }
         }
         
@@ -6877,40 +6902,40 @@ public class IOSImplementation extends CodenameOneImplementation {
         }
         
         protected Dimension calcPreferredSize() {
-            if(nativePeer == null || nativePeer[0] == 0) {
+            if(nativePeer == 0) {
                 return new Dimension();
             }
             int[] p = widthHeight;
-            nativeInstance.calcPreferredSize(nativePeer[0], getDisplayWidth(), getDisplayHeight(), p);
+            nativeInstance.calcPreferredSize(nativePeer, getDisplayWidth(), getDisplayHeight(), p);
             return new Dimension(p[0], p[1]);
         }
 
         protected void onPositionSizeChange() {
-            if(nativePeer != null && nativePeer[0] != 0) {
-                nativeInstance.updatePeerPositionSize(nativePeer[0], getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
+            if(nativePeer != 0) {
+                nativeInstance.updatePeerPositionSize(nativePeer, getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
             }
         }
 
         protected void initComponent() {
             super.initComponent();
-            if(nativePeer != null && nativePeer[0] != 0) {
-                nativeInstance.peerInitialized(nativePeer[0], getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
+            if(nativePeer != 0) {
+                nativeInstance.peerInitialized(nativePeer, getAbsoluteX(), getAbsoluteY(), getWidth(), getHeight());
             }
         }
 
         protected void deinitialize() {
-            if(nativePeer != null && nativePeer[0] != 0) {
+            if(nativePeer != 0) {
                 setPeerImage(generatePeerImage());
-                nativeInstance.peerDeinitialized(nativePeer[0]);
+                nativeInstance.peerDeinitialized(nativePeer);
             }
             super.deinitialize();
         }
         
         protected void setLightweightMode(boolean l) {
-            if(nativePeer != null && nativePeer[0] != 0) {
+            if(nativePeer != 0) {
                 if(lightweightMode != l) {
                     lightweightMode = l;
-                    nativeInstance.peerSetVisible(nativePeer[0], !lightweightMode);
+                    nativeInstance.peerSetVisible(nativePeer, !lightweightMode);
                     // fix for https://groups.google.com/d/msg/codenameone-discussions/LKxy16PhYEY/bvusdq-ICwAJ
                     Form f = getComponentForm();
                     if(f != null) {
@@ -6922,7 +6947,7 @@ public class IOSImplementation extends CodenameOneImplementation {
         
         protected Image generatePeerImage() {
             int[] wh = widthHeight;
-            long imagePeer = nativeInstance.createPeerImage(this.nativePeer[0], wh);
+            long imagePeer = nativeInstance.createPeerImage(this.nativePeer, wh);
             if(imagePeer == 0) {
                 return null;
             }
@@ -8104,15 +8129,8 @@ public class IOSImplementation extends CodenameOneImplementation {
     
     public static void localNotificationReceived(final String notificationId) {
         if (localNotificationCallback != null) {
-            Display.getInstance().callSerially(new Runnable() {
-
-                @Override
-                public void run() {
-                    if (getLocalNotificationCallback() != null) {
-                        getLocalNotificationCallback().localNotificationReceived(notificationId);
-                    }
-                }
-            });
+            // this should be invoked off the EDT...
+            localNotificationCallback.localNotificationReceived(notificationId);
         } else { // could be a race condition against the native code... Retry in 2 seconds
             new Thread() {
                 public void run() {

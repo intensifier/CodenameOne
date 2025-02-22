@@ -30,6 +30,9 @@ import com.codename1.io.NetworkEvent;
 import com.codename1.io.NetworkManager;
 import com.codename1.io.Storage;
 import com.codename1.messaging.Message;
+import com.codename1.plugin.Plugin;
+import com.codename1.plugin.PluginSupport;
+import com.codename1.plugin.event.PluginEvent;
 import com.codename1.ui.events.ActionListener;
 import com.codename1.ui.events.MessageEvent;
 import com.codename1.ui.geom.Rectangle;
@@ -1395,7 +1398,9 @@ public class CN extends  CN1Constants {
      * last modified.
      * @return A long value representing the time the file was last modified, 
      * measured in milliseconds
-     */ 
+     * @deprecated this API requires additional privacy permissions on iOS
+     *     and might cause problems with iOS submissions
+     */
     public static long getFileLastModifiedFile(String file) {
         return FileSystemStorage.getInstance().getLastModified(file);
     }
@@ -1625,4 +1630,12 @@ public class CN extends  CN1Constants {
         return Display.impl.getSharedJavscriptContext();
     }
 
+    /**
+     * Returns the plugin support object for the current platform.  Use this object for registering plugins.
+     * @return The plugin support object.
+     * @since 8.0
+     */
+    public static PluginSupport getPluginSupport() {
+        return Display.INSTANCE.getPluginSupport();
+    }
 }

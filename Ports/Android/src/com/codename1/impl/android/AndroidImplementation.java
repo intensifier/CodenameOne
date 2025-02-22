@@ -24,6 +24,8 @@ package com.codename1.impl.android;
 
 import android.Manifest;
 import android.annotation.TargetApi;
+import com.codename1.impl.android.permissions.DevicePermission;
+import com.codename1.impl.android.permissions.PermissionsHelper;
 import com.codename1.location.AndroidLocationManager;
 import android.app.*;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -221,6 +223,11 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
             }
         }
     };
+
+    public static final int FLAG_ONE_SHOT = 0x40000000;
+    public static final int FLAG_MUTABLE = 0x02000000;
+
+    public static final int FLAG_IMMUTABLE = 0x04000000;
 
     /**
      * make sure these important keys have a negative value when passed to
@@ -778,8 +785,15 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
 
     public static PendingIntent createPendingIntent(Context ctx, int value, Intent intent) {
         if (android.os.Build.VERSION.SDK_INT >= 23) {
-            // PendingIntent.FLAG_IMMUTABLE
-            return PendingIntent.getActivity(ctx, value, intent, 67108864);
+            return PendingIntent.getActivity(ctx, value, intent, FLAG_IMMUTABLE);
+        } else {
+            return PendingIntent.getActivity(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+        }
+    }
+
+    public static PendingIntent createMutablePendingIntent(Context ctx, int value, Intent intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            return PendingIntent.getActivity(ctx, value, intent, FLAG_MUTABLE);
         } else {
             return PendingIntent.getActivity(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
         }
@@ -787,8 +801,7 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
 
     public static PendingIntent getPendingIntent(Context ctx, int value, Intent intent) {
         if (android.os.Build.VERSION.SDK_INT >= 23) {
-            // PendingIntent.FLAG_IMMUTABLE
-            return PendingIntent.getService(ctx, value, intent, 67108864);
+            return PendingIntent.getService(ctx, value, intent, FLAG_IMMUTABLE);
         } else {
             return PendingIntent.getService(ctx, value, intent, PendingIntent.FLAG_CANCEL_CURRENT);
         }
@@ -838,13 +851,10 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         for (PushAction action : category.getActions()) {
             Intent newIntent = (Intent)targetIntent.clone();
             newIntent.putExtra("pushActionId", action.getId());
-            PendingIntent contentIntent = createPendingIntent(context, requestCode++, newIntent);
+            PendingIntent contentIntent = createMutablePendingIntent(context, requestCode++, newIntent);
             try {
                 int iconId = 0;
                 try { iconId = Integer.parseInt(action.getIcon());} catch (Exception ex){}
-                //android.app.Notification.Action.Builder actionBuilder = new android.app.Notification.Action.Builder(iconId, action.getTitle(), contentIntent);
-
-                System.out.println("Adding action "+action.getId()+", "+action.getTitle()+", icon="+iconId);
                 if (ActionWrapper.BuilderWrapper.isSupported()) {
                     // We need to take this abstracted "wrapper" approach because the Action.Builder class, and RemoteInput class
                     // aren't available until API 22.
@@ -2713,6 +2723,9 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         @Override
         public void run() {
             activity.invalidateOptionsMenu();
+            if (activity.getActionBar() == null) {
+                return;
+            }
             if (show) {
                 activity.getActionBar().show();
             } else {
@@ -2823,8 +2836,36 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         }
         return null;
     }
+    
+    // taken from https://stackoverflow.com/a/70380413/756809
+    private boolean isRunningOnAndroidStudioEmulator() {
+        return Build.FINGERPRINT.startsWith("google/sdk_gphone")
+                && Build.FINGERPRINT.endsWith(":user/release-keys")
+                && Build.MANUFACTURER == "Google" && Build.PRODUCT.startsWith("sdk_gphone") && Build.BRAND == "google"
+                && Build.MODEL.startsWith("sdk_gphone");
+    }
 
-
+    // taken from https://stackoverflow.com/a/57960169/756809
+    private boolean isEmulator() {
+        return isRunningOnAndroidStudioEmulator() ||
+                ((Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.HARDWARE.contains("goldfish")
+                || Build.HARDWARE.contains("ranchu")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MODEL.contains("VirtualBox")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || Build.PRODUCT.contains("sdk_google")
+                || Build.PRODUCT.contains("google_sdk")
+                || Build.PRODUCT.contains("sdk")
+                || Build.PRODUCT.contains("sdk_x86")
+                || Build.PRODUCT.contains("vbox86p")
+                || Build.PRODUCT.contains("emulator")
+                || Build.PRODUCT.contains("simulator"));
+    }
 
 
     /**
@@ -2904,6 +2945,9 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         }
         if("DeviceName".equals(key)) {
             return "" + android.os.Build.MODEL;
+        }
+        if("Emulator".equals(key)) {
+            return "" + isEmulator();
         }
         /*try {
             if ("IMEI".equals(key) || "UDID".equals(key)) {
@@ -3097,9 +3141,12 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
                 intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
             } else {
                 if(url.startsWith("/") || url.startsWith("file:")) {
-                    if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to open the file")){
-                        return null;
+                    if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+                        if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to open the file")){
+                            return null;
+                        }
                     }
+
                 }
                 intent = new Intent();
                 intent.setAction(Intent.ACTION_VIEW);
@@ -3478,7 +3525,7 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
             return null;
         }
         if(!uri.startsWith(FileSystemStorage.getInstance().getAppHomePath())) {
-            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to play media")){
+            if(!PermissionsHelper.checkForPermission(isVideo ? DevicePermission.PERMISSION_READ_VIDEO : DevicePermission.PERMISSION_READ_AUDIO, "This is required to play media")){
                 return null;
             }
         }
@@ -5197,7 +5244,7 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
     }
     private static CookieManager cookieManager;
     private static CookieManager getCookieManager() {
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
+        if (android.os.Build.VERSION.SDK_INT > 28) {
             return CookieManager.getInstance();
         }
         if (cookieManager == null) {
@@ -6489,20 +6536,6 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
     }
 
     private String removeFilePrefix(String file) {
-        if (file.contains("/files//storage/emulated/")) {
-            // TODO: Find a better fix for issue https://github.com/codenameone/CodenameOne/issues/3204
-            // The gallery is returning files inside the directory /storage/emulated/0/DCIM/Camera/...
-            // The path is translated wrong because this path is not listed in any of the root
-            // paths of the file system.
-            // This issue is related to scoped storage. in API 29.
-            // https://stackoverflow.com/questions/56992682/android-9-api-29-storage-emulated-0-pictures-mypic-png-open-failed-eacces
-            // 
-            // This hack works around the problem (and seems to fix it for my test device) by simply
-            // looking for this pattern in the path, and stripping everything before
-            // the /storage/emulated/...
-            // Not good.  Needs to be revisited. - SJH Sept 25, 2020
-            return file.substring(file.indexOf("/files//storage/emulated/")+ 7);
-        }
         if (file.startsWith("file://")) {
             return file.substring(7);
         }
@@ -6629,18 +6662,25 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
      * @return LocationControl Object
      */
     public LocationManager getLocationManager() {
-        boolean permissionGranted = false;
-        if (Build.VERSION.SDK_INT >= 29  && "true".equals(Display.getInstance().getProperty("android.requiresBackgroundLocationPermissionForAPI29", "false"))) {
-
-            if (checkForPermission("android.permission.ACCESS_BACKGROUND_LOCATION", "This is required to get the location")) {
-                permissionGranted = true;
-            }
-
-        }
-        if (!permissionGranted && !checkForPermission( Manifest.permission.ACCESS_FINE_LOCATION, "This is required to get the location")) {
+        String permissionMessage = "This is required to get the location";
+        if (
+                !checkForPermission( Manifest.permission.ACCESS_FINE_LOCATION, permissionMessage)
+        ) {
             return null;
         }
-
+        if (
+                Build.VERSION.SDK_INT >= 29  
+                && "true".equals(Display.getInstance().getProperty("android.requiresBackgroundLocationPermissionForAPI29", "false"))
+        ) {
+            if (
+                    !checkForPermission(
+                            "android.permission.ACCESS_BACKGROUND_LOCATION", 
+                            permissionMessage
+                    )
+            ) {
+                com.codename1.io.Log.e(new RuntimeException("Background location permission denied"));
+            }
+        }
 
         boolean includesPlayServices = Display.getInstance().getProperty("IncludeGPlayServices", "false").equals("true");
         if (includesPlayServices && hasAndroidMarket()) {
@@ -6669,11 +6709,15 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
 
         File newFile = new File(mediaStorageDir.getPath() + File.separator
                     + cn1File.getName());
-        if(newFile.exists()) {
-            // Create a media file name
-            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            newFile = new File(mediaStorageDir.getPath() + File.separator
-                    + "IMG_" + timeStamp + "_" + cn1File.getName());
+        if (newFile.exists()) {
+            if (Display.getInstance().getProperty("DeleteCachedFileAfterShare", "false").equals("true")) {
+                newFile.delete();
+            } else {
+                // Create a media file name
+                String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+                newFile = new File(mediaStorageDir.getPath() + File.separator
+                        + "IMG_" + timeStamp + "_" + cn1File.getName());
+            }
         }
 
 
@@ -7233,8 +7277,13 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         }*/
         Intent shareIntent = new Intent(android.content.Intent.ACTION_SEND);
         if(image == null){
-            shareIntent.setType("text/plain");
-            shareIntent.putExtra(android.content.Intent.EXTRA_TEXT, text);
+            if (text.startsWith("file:") && mimeType != null && new com.codename1.io.File(text).exists()) {
+                shareIntent.setType(mimeType);
+                shareIntent.putExtra(Intent.EXTRA_STREAM, Uri.parse(fixAttachmentPath(text)));
+            } else {
+                shareIntent.setType("text/plain");
+                shareIntent.putExtra(android.content.Intent.EXTRA_TEXT, text);
+            }
         }else{
             shareIntent.setType(mimeType);
             shareIntent.putExtra(Intent.EXTRA_STREAM, Uri.parse(fixAttachmentPath(image)));
@@ -7944,10 +7993,29 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         if (requestCode == REQUEST_SELECT_FILE || requestCode == FILECHOOSER_RESULTCODE) {
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 if (requestCode == REQUEST_SELECT_FILE) {
-                    if (uploadMessage == null) {
-                        return;
+                    if (uploadMessage == null) return;
+                    Uri[] results = null;
+
+                    // Check that the response is a good one
+                    if (resultCode == Activity.RESULT_OK) {
+                        if (intent != null) {
+                            // If there is not data, then we may have taken a photo
+                            String dataString = intent.getDataString();
+                            ClipData clipData = intent.getClipData();
+
+                            if (clipData != null) {
+                                results = new Uri[clipData.getItemCount()];
+                                for (int i = 0; i < clipData.getItemCount(); i++) {
+                                    ClipData.Item item = clipData.getItemAt(i);
+                                    results[i] = item.getUri();
+                                }
+                            } else if (dataString != null) {
+                                results = new Uri[]{Uri.parse(dataString)};
+                            }
+                        }
                     }
-                    uploadMessage.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, intent));
+
+                    uploadMessage.onReceiveValue(results);
                     uploadMessage = null;
                 }
             }
@@ -8136,14 +8204,19 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         }
     }
 
+
+
     @Override
     public void capturePhoto(ActionListener response) {
         if (getActivity() == null) {
             throw new RuntimeException("Cannot capture photo in background mode");
         }
-        if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to take a picture")){
-            return;
+        if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to take a picture")){
+                return;
+            }
         }
+
         if (getRequestedPermissions().contains(Manifest.permission.CAMERA)) {
             // Normally we don't need to request the CAMERA permission since we use
             // the ACTION_IMAGE_CAPTURE intent, which handles permissions itself.
@@ -8193,9 +8266,12 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         if (getActivity() == null) {
             throw new RuntimeException("Cannot capture video in background mode");
         }
-        if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to take a video")){
-            return;
+        if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to take a video")){
+                return;
+            }
         }
+
         if (getRequestedPermissions().contains(Manifest.permission.CAMERA)) {
             // Normally we don't need to request the CAMERA permission since we use
             // the ACTION_VIDEO_CAPTURE intent, which handles permissions itself.
@@ -8409,8 +8485,10 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         if (getActivity() == null) {
             throw new RuntimeException("Cannot open galery in background mode");
         }
-        if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to browse the photos")){
-            return;
+        if (PermissionsHelper.requiresExternalStoragePermissionForMediaAccess()) {
+            if(!checkForPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, "This is required to browse the photos")){
+                return;
+            }
         }
         if(editInProgress()) {
             stopEditing(true);
@@ -8555,6 +8633,13 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
         if (getActivity() == null) {
             return;
         }
+
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if(!checkForPermission("android.permission.POST_NOTIFICATIONS", "This is required to receive push notifications")){
+                return;
+            }
+        }
+
         boolean has = hasAndroidMarket();
         if (!has) {
             Log.d("Codename One", "Device doesn't have Android market/google play can't register for push!");
@@ -10420,7 +10505,12 @@ public class AndroidImplementation extends CodenameOneImplementation implements 
     }
 
     public void scheduleLocalNotification(LocalNotification notif, long firstTime, int repeat) {
-
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if(!checkForPermission("android.permission.POST_NOTIFICATIONS", "This is required to receive notifications")){
+                com.codename1.io.Log.e(new RuntimeException("Local notification was prevented the POST_NOTIFICATIONS permission was not granted by the user."));
+                return;
+            }
+        }
         final Intent notificationIntent = new Intent(getContext(), LocalNotificationPublisher.class);
         notificationIntent.setAction(getContext().getApplicationInfo().packageName + "." + notif.getId());
         notificationIntent.putExtra(LocalNotificationPublisher.NOTIFICATION, createBundleFromNotification(notif));

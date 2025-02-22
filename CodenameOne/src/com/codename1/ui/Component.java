@@ -34,7 +34,6 @@ import com.codename1.ui.animations.Motion;
 import com.codename1.ui.events.*;
 import com.codename1.ui.geom.Dimension;
 import com.codename1.ui.geom.Rectangle;
-import com.codename1.ui.geom.Shape;
 import com.codename1.ui.layouts.FlowLayout;
 import com.codename1.ui.plaf.*;
 import com.codename1.ui.util.EventDispatcher;
@@ -335,7 +334,9 @@ public class Component implements Animation, StyleListener, Editable {
     private boolean isScrollVisible = true;
     private boolean repaintPending;
     private boolean snapToGrid;
-    
+    private static byte defaultDragTransparency = 55;
+    private byte dragTransparency = defaultDragTransparency;
+
     /**
      * A flag to dictate whether style changes should trigger a revalidate() call
      * on the component's parent.  Eventually we would like to phase this to be {@literal false}
@@ -3286,7 +3287,7 @@ public class Component implements Animation, StyleListener, Editable {
 
     /**
      * Indicates the Y position of the scrolling, this number is relative to the
-     * component position and so a position of 0 would indicate the x position
+     * component position and so a position of 0 would indicate the y position
      * of the component.
      * 
      * @return the Y position of the scrolling
@@ -4597,7 +4598,7 @@ public class Component implements Animation, StyleListener, Editable {
             }
         }
         draggedMotionX = null;
-        draggedMotionY = null;        
+        draggedMotionY = null;
         
         Component parent = getParent();
         if(parent != null){
@@ -4663,11 +4664,42 @@ public class Component implements Animation, StyleListener, Editable {
     protected void pinchReleased(int x, int y) {
         
     }
-    
+
+    /**
+     * Invoked by subclasses interested in handling pinch to do their own actions based on the position of the two fingers, if true is returned
+     * other drag events will not be broadcast
+     *
+     * @param x the pointer x coordinate
+     * @param y the pointer y coordinate
+     * @return false by default, true if pinch is handled
+     */
+    protected boolean pinch(int[] x, int[] y) {
+        return false;
+    }
+
+    private boolean pinchBlocksDragAndDrop;
+
+    /**
+     * If a component supports pinch as well as drag and drop the two may conflict (if one finger is placed a bit before the other, the drag
+     * timer will be initiated and may trigger drag even if the second finger has been placed before).
+     * Setting setPinchBlocksDragAndDrop to true will prevent drag from triggering.
+     * @param block if true will prevent drag and drop to trigger if two fingers are placed to pinch before the drag is initiated
+     */
+    public void setPinchBlocksDragAndDrop(boolean block) {
+        pinchBlocksDragAndDrop = block;
+    }
+
+    /**
+     * returns true if pinch will block drag and drop
+     */
+    public boolean isPinchBlocksDragAndDrop() {
+        return pinchBlocksDragAndDrop;
+    }
+
     /**
      * If this Component is focused, the pointer dragged event
      * will call this method
-     * 
+     *
      * @param x the pointer x coordinate
      * @param y the pointer y coordinate
      */
@@ -4680,8 +4712,11 @@ public class Component implements Animation, StyleListener, Editable {
                 pinchDistance = currentDis;
             }
             double scale = currentDis / pinchDistance;
-            if (pinch((float)scale)) {
+            boolean pinchXY = pinch(x, y); // ensure that both pinch(scale) and pinch(x,y) are called
+            if (pinch((float) scale) || pinchXY) {
                 inPinch = true;
+                if (pinchBlocksDragAndDrop)
+                    dragActivated = false;
                 return;
             }
         } else {
@@ -4714,9 +4749,49 @@ public class Component implements Animation, StyleListener, Editable {
         }
         g.translate(getX(), getY());
 
-        // remove all occurences of the rare color
-        draggedImage = draggedImage.modifyAlpha((byte)0x55, 0xff7777);
+        if(dragTransparency < 255) {
+            // remove all occurrences of the rare color
+            draggedImage = draggedImage.modifyAlpha(dragTransparency, 0xff7777);
+        }
         return draggedImage;
+    }
+
+    /**
+     * Sets the translucency of the {@link #getDragImage()} method.
+     *
+     * @param dragTransparency a number between 0 and 255 where 255
+     *                         indicates an opaque image.
+     */
+    public void setDragTransparency(byte dragTransparency) {
+        this.dragTransparency = dragTransparency;
+    }
+
+    /**
+     * Returns the translucency used in the {@link #getDragImage()} method.
+     *
+     * @return a number between 0 and 255 where 255 indicates an opaque image.
+     */
+    public byte getDragTransparency() {
+        return dragTransparency;
+    }
+
+    /**
+     * Sets the default translucency of the {@link #getDragImage()} method.
+     *
+     * @param defaultDragTransparency a number between 0 and 255 where 255
+     *                         indicates an opaque image.
+     */
+    public static void setDefaultDragTransparency(byte defaultDragTransparency) {
+        Component.defaultDragTransparency = defaultDragTransparency;
+    }
+
+    /**
+     * Returns the default translucency used in the {@link #getDragImage()} method.
+     *
+     * @return a number between 0 and 255 where 255 indicates an opaque image.
+     */
+    public static byte getDefaultDragTransparency() {
+        return defaultDragTransparency;
     }
 
     /**
@@ -5355,7 +5430,9 @@ public class Component implements Animation, StyleListener, Editable {
     void startTensile(int offset, int dest, boolean vertical) {
         Motion draggedMotion;
         if(tensileDragEnabled) {
-            draggedMotion = Motion.createDecelerationMotion(offset, dest, 500);
+            final int distance = Math.abs(offset - dest);
+            final int duration = Math.max(300, (int)Math.round(1000 * distance / (double)CN.getDisplayHeight()));
+            draggedMotion = Motion.createDecelerationMotion(offset, dest, duration);
             draggedMotion.start();
         } else {
             draggedMotion = Motion.createLinearMotion(offset, dest, 0);
@@ -5688,7 +5765,6 @@ public class Component implements Animation, StyleListener, Editable {
     }
     
     private void pointerReleaseImpl(Component lead, int x, int y) {
-        
         if(restoreDragPercentage > -1) {
             Display.getInstance().setDragStartPercentage(restoreDragPercentage);
         }
@@ -6311,7 +6387,7 @@ public class Component implements Animation, StyleListener, Editable {
     boolean isTensileMotionInProgress() {
         return draggedMotionY != null && !draggedMotionY.isFinished();
     }
-    
+
     /**
      * {@inheritDoc}
      */
@@ -6342,18 +6418,45 @@ public class Component implements Animation, StyleListener, Editable {
             // change the variable directly for efficiency both in removing redundant
             // repaints and scroll checks
             int dragVal = draggedMotionY.getValue();
-
+            int iv = getInvisibleAreaUnderVKB();
+            int edge = (getScrollDimension().getHeight() - getHeight() + iv);
+            if (!draggedMotionY.isFinished()
+                    && draggedMotionY.isDecayMotion()
+                    && draggedMotionY.countAvailableVelocitySamplingPoints() > 1) {
+                final Motion origDraggedMotionY = draggedMotionY;
+                if (dragVal < 0) {
+                    // Once past 0, decay motion is too slow.  We need to hit it with heavy friction.
+                    draggedMotionY = Motion.createFrictionMotion(
+                            dragVal,
+                            -getTensileLength(),
+                            (int)origDraggedMotionY.getVelocity(),
+                            0.01f
+                    );
+                    draggedMotionY.start();
+                    origDraggedMotionY.finish();
+                } else if (snapToGrid
+                        && Math.abs(origDraggedMotionY.getVelocity()) * 1000 < CN.convertToPixels(5)) {
+                    // If snapToGrid is enabled, the grid snap should take precendent if the drag is slower
+                    // than some threshold.
+                    draggedMotionY = Motion.createFrictionMotion(
+                            dragVal,
+                            origDraggedMotionY.getDestinationValue(),
+                            (int)origDraggedMotionY.getVelocity(),
+                            0.1f
+                    );
+                    draggedMotionY.start();
+                    origDraggedMotionY.finish();
+                }
+            }
             // this can't be a part of the parent if since we need the last value to arrive
             if (draggedMotionY.isFinished()) {
                 if (dragVal < 0) {
                     startTensile(dragVal, 0, true);
                 } else {
-                    int iv = getInvisibleAreaUnderVKB();
-                    int edge = (getScrollDimension().getHeight() - getHeight() + iv);
                     if (dragVal > edge && edge > 0) {
                         startTensile(dragVal, getScrollDimension().getHeight() - getHeight() + iv, true);
                     } else {
-                        if (snapToGrid && getScrollY() < edge && getScrollY() > 0) {
+                        if (snapToGrid) {
                             boolean tVal = tensileDragEnabled;
                             tensileDragEnabled = true;
                             int dest = getGridPosY();
@@ -6375,7 +6478,6 @@ public class Component implements Animation, StyleListener, Editable {
                         }
                     }
                 }
-                
                 // special callback to scroll Y to allow developers to override the setScrollY method effectively
                 setScrollY(dragVal);
                 updateTensileHighlightIntensity(dragVal, getScrollDimension().getHeight() - getHeight() + getInvisibleAreaUnderVKB(), false);            
