@@ -49,6 +49,7 @@ import java.util.logging.Logger;
 public class IPhoneBuilder extends Executor {
     private boolean useMetal;
     private boolean enableGalleryMultiselect;
+    private boolean usePhotoKitForMultigallery;
     private boolean enableWKWebView, disableUIWebView;
     private String pod = "/usr/local/bin/pod";
     private int podTimeout = 300000; // 5 minutes
@@ -59,10 +60,13 @@ public class IPhoneBuilder extends Executor {
     private File tmpFile;
     private File icon57;
     private File icon512;
+    private static final String DEFAULT_MIN_DEPLOYMENT_VERSION = "12.0";
 
     // StringBuilder used for constructing ruby script with xcodeproj
     // which adds localized strings files to the project.
     private StringBuilder installLocalizedStringsScript = new StringBuilder();
+
+    private boolean detectJailbreak;
 
     private boolean runPods=false;
     private boolean photoLibraryUsage;
@@ -165,7 +169,7 @@ public class IPhoneBuilder extends Executor {
         return new File(tmpFile, "btres");
     }
     
-    private String minDeploymentTargets = "6.0";
+    private String minDeploymentTargets = "12.0";
     private void addMinDeploymentTarget(String target) {
         minDeploymentTargets += ","+target;
     }
@@ -209,6 +213,8 @@ public class IPhoneBuilder extends Executor {
 
     @Override
     public boolean build(File sourceZip, BuildRequest request) throws BuildException {
+        addMinDeploymentTarget(DEFAULT_MIN_DEPLOYMENT_VERSION);
+        detectJailbreak = request.getArg("ios.detectJailbreak", "false").equals("true");
         defaultEnvironment.put("LANG", "en_US.UTF-8");
         tmpFile = tmpDir = getBuildDirectory();
         useMetal = "true".equals(request.getArg("ios.metal", "false"));
@@ -267,6 +273,8 @@ public class IPhoneBuilder extends Executor {
                 addMinDeploymentTarget("8.0");
             }
         }
+        usePhotoKitForMultigallery = "true".equals(request.getArg("ios.usePhotoKitForMultigallery", "false"));
+
         enableWKWebView = "true".equals(request.getArg("ios.useWKWebView", "true"));
         if (enableWKWebView) {
             addMinDeploymentTarget("8.0");
@@ -425,7 +433,7 @@ public class IPhoneBuilder extends Executor {
             if (child.getName().endsWith(".framework.zip")) {
                 log("Found framework "+child+". Attempting extract it and generate podspec for it");
                 try {
-                    if (!exec(resDir, "unzip", child.getName(), "-d", new File(tmpDir, "dist").getAbsolutePath())) {
+                    if (!exec(resDir, "ditto", "-x", "-k", child.getAbsolutePath(), new File(tmpDir, "dist").getAbsolutePath())) {
                         log("Failed to unzip " + child.getName());
                         return false;
                     }
@@ -808,6 +816,13 @@ public class IPhoneBuilder extends Executor {
                 throw new BuildException("Failed to enabled gallery multiselect support", ex);
             }
         }
+        if (usePhotoKitForMultigallery) {
+            try {
+                replaceInFile(new File(buildinRes, "CodenameOne_GLViewController.h"), "//#define USE_PHOTOKIT_FOR_MULTIGALLERY", "#define USE_PHOTOKIT_FOR_MULTIGALLERY");
+            } catch (IOException ex) {
+                throw new BuildException("Failed to enabled gallery multiselect support", ex);
+            }
+        }
         if (enableWKWebView) {
             try {
                 replaceInFile(new File(buildinRes, "CodenameOne_GLViewController.h"), "//#define ENABLE_WKWEBVIEW", "#define ENABLE_WKWEBVIEW");
@@ -926,9 +941,6 @@ public class IPhoneBuilder extends Executor {
                 + "                com.codename1.impl.ios.IOSImplementation.endBackgroundTask(bgTask);"
                 + "            }\n"
                 + "        });\n";
-
-
-
 
         try (OutputStream stubSourceStream = new FileOutputStream(new File(stubSource, request.getMainClass() + "Stub.java"))) {
             String stubSourceCode = "package " + request.getPackageName() + ";\n\n"
@@ -1154,9 +1166,15 @@ public class IPhoneBuilder extends Executor {
                 }
             }
         }
-
+        String javacPath = System.getProperty("java.home") + "/../bin/javac";
+        if (!new File(javacPath).exists()) {
+            javacPath = System.getProperty("java.home") + "/bin/javac";
+        }
+        if (!new File(javacPath).exists()) {
+            javacPath = "javac";
+        }
         try {
-            if (!execWithFiles(stubSource, stubSource, ".java", "javac", "-source", "1.6", "-target", "1.6", "-classpath",
+            if (!execWithFiles(stubSource, stubSource, ".java", javacPath, "-source", "1.6", "-target", "1.6", "-classpath",
                     classesDir.getAbsolutePath(),
                     "-d", classesDir.getAbsolutePath())) {
                 return false;
@@ -1263,6 +1281,11 @@ public class IPhoneBuilder extends Executor {
             String glAppDelegeateHeader = request.getArg("ios.glAppDelegateHeader", null);
             if (glAppDelegeateHeader != null && glAppDelegeateHeader.length() > 0) {
                 replaceInFile(glAppDelegate, "//GL_APP_DELEGATE_INCLUDE", glAppDelegeateHeader);
+            }
+
+            File jailbreakH = new File(buildinRes, "CN1JailbreakDetector.h");
+            if (jailbreakH.exists() && detectJailbreak) {
+                replaceInFile(jailbreakH, "//#define CN1_DETECT_JAILBREAK", "#define CN1_DETECT_JAILBREAK");
             }
 
             String glAppDelegeateBody = request.getArg("ios.glAppDelegateBody", null);
@@ -1412,6 +1435,14 @@ public class IPhoneBuilder extends Executor {
                         addLibs = "AdSupport.framework;SystemConfiguration.framework;StoreKit.framework;CoreTelephony.framework";
                     } else {
                         addLibs = addLibs + ";AdSupport.framework;SystemConfiguration.framework;StoreKit.framework;CoreTelephony.framework";
+                    }
+                }
+
+                if (enableGalleryMultiselect && photoLibraryUsage && usePhotoKitForMultigallery) {
+                    if (addLibs == null || addLibs.length() == 0) {
+                        addLibs = "PhotosUI.framework";
+                    } else {
+                        addLibs += ";PhotosUI.framework";
                     }
                 }
 
@@ -1859,6 +1890,7 @@ public class IPhoneBuilder extends Executor {
                     podFileContents += "\n\npost_install do |installer|\n" +
                             "  installer.pods_project.targets.each do |target|\n" +
                             "    target.build_configurations.each do |config|\n" +
+                            "      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = \"" + getDeploymentTarget(request) + "\"\n" +
                             "      config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = \"\"\n" +
                             "      config.build_settings['CODE_SIGNING_REQUIRED'] = \"NO\"\n" +
                             "      config.build_settings['CODE_SIGNING_ALLOWED'] = \"NO\"\n" +

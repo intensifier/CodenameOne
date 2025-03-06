@@ -275,8 +275,18 @@ public class CodenameOneView {
             case KeyEvent.KEYCODE_ALT_LEFT:
             case KeyEvent.KEYCODE_ALT_RIGHT:
             case KeyEvent.KEYCODE_SYM:
+            return false;
             case KeyEvent.KEYCODE_ENTER:
-                return false;
+                if(Display.getInstance().getProperty("sendEnterKey", "false").equals("true")) {
+                	if (down) {
+                        Display.getInstance().keyPressed(keyCode);
+                    } else {
+                        Display.getInstance().keyReleased(keyCode);
+                    }
+               	    return false;
+                }
+                break;
+                
             default:
         }
 

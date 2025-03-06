@@ -33,6 +33,9 @@ import com.codename1.location.LocationManager;
 import com.codename1.media.MediaManager;
 import com.codename1.media.RemoteControlListener;
 import com.codename1.messaging.Message;
+import com.codename1.plugin.PluginSupport;
+import com.codename1.plugin.event.IsGalleryTypeSupportedEvent;
+import com.codename1.plugin.event.OpenGalleryEvent;
 import com.codename1.ui.animations.Animation;
 import com.codename1.ui.animations.CommonTransitions;
 import com.codename1.ui.animations.Transition;
@@ -418,6 +421,8 @@ public final class Display extends CN1Constants {
     
     private Boolean darkMode;
 
+    private PluginSupport pluginSupport;
+
      /**
      * Internally track display initialization time as a fixed point to allow tagging of pointer
      * events with an integer timestamp (System.currentTimeMillis() - displayInitTime)
@@ -518,6 +523,7 @@ public final class Display extends CN1Constants {
     public static void init(Object m) {
         if(!INSTANCE.codenameOneRunning) {
             INSTANCE.codenameOneRunning = true;
+            INSTANCE.pluginSupport = new PluginSupport();
             INSTANCE.displayInitTime = System.currentTimeMillis();
             
             //restore menu state from previous run if exists
@@ -605,6 +611,15 @@ public final class Display extends CN1Constants {
      */
     public static Display getInstance(){
         return INSTANCE;
+    }
+
+    /**
+     * Gets reference to plugin support object.
+     * @return The plugin support object.
+     * @since 8.0
+     */
+    public PluginSupport getPluginSupport() {
+        return pluginSupport;
     }
 
     /**
@@ -3997,6 +4012,9 @@ hi.show();}</pre></noscript>
      * @deprecated see openGallery instead
      */
     public void openImageGallery(ActionListener response){
+        if (pluginSupport.firePluginEvent(new OpenGalleryEvent(response, Display.GALLERY_IMAGE)).isConsumed()) {
+            return;
+        }
         impl.openImageGallery(response);
     }
     
@@ -4027,6 +4045,10 @@ hi.show();}</pre></noscript>
      * @see #isGalleryTypeSupported(int) To see if a type is supported on the current platform.
      */
     public void openGallery(ActionListener response, int type){
+        if (pluginSupport.firePluginEvent(new OpenGalleryEvent(response, type)).isConsumed()) {
+            return;
+        }
+
         impl.openGallery(response, type);
     }
     
@@ -4038,6 +4060,10 @@ hi.show();}</pre></noscript>
      * @see #openGallery(com.codename1.ui.events.ActionListener, int) 
      */
     public boolean isGalleryTypeSupported(int type) {
+        IsGalleryTypeSupportedEvent evt = new IsGalleryTypeSupportedEvent(type);
+        if (pluginSupport.firePluginEvent(evt).isConsumed()) {
+            return evt.getPluginEventResponse();
+        }
         return impl.isGalleryTypeSupported(type);
     }
 
@@ -4405,16 +4431,19 @@ hi.show();}</pre></noscript>
      * 
      * <p>Since 6.0, there is native sharing support in the Javascript port using the <a href="https://developer.mozilla.org/en-US/docs/Web/API/Navigator/share">navigator.share</a>
      * API.  Currently (2019) this is only supported on Chrome for Android, and will only work if the app is accessed over https:.</p>
-     * 
-     * @param text String to share.
+     *
+     * <p>Since 8.0, you can share files using using the file path in the text parameter.  The file must exist in file system storage, and
+    * you must define the appropriate mimeType in the mimeType parameter.  E.g. {@code share("file:/.../myfile.pdf", null, "application.pdf") }</p>
+    *
+     * @param textOrPath String to share, or path to file to share.
      * @param image file path to the image or null
-     * @param mimeType type of the image or null if no image to share
+     * @param mimeType type of the image or file.  null if just sharing text
      * @param sourceRect The source rectangle of the button that originated the share request.  This is used on
      * some platforms to provide a hint as to where the share dialog overlay should pop up.  Particularly,
      * on the iPad with iOS 8 and higher.
      */
-    public void share(String text, String image, String mimeType, Rectangle sourceRect){
-        impl.share(text, image, mimeType, sourceRect);
+    public void share(String textOrPath, String image, String mimeType, Rectangle sourceRect){
+        impl.share(textOrPath, image, mimeType, sourceRect);
     }
     
     

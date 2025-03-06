@@ -34,6 +34,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.ResultReceiver;
+import android.text.Selection;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -601,8 +602,9 @@ public class InPlaceEditView extends FrameLayout{
      * @param show Show the keyboard if true, hide it otherwise
      */
     private void showVirtualKeyboard(boolean show) {
+        show = Boolean.parseBoolean(Display.getInstance().getProperty("showVkb", "" + show));
         Log.i(TAG, "showVirtualKeyboard show=" + show);
-
+        
         boolean result = false;
         if (show) {
             // If we're in landscape, Android will not show the soft
@@ -1017,7 +1019,13 @@ public class InPlaceEditView extends FrameLayout{
             // on a particular text field.
             mEditText.setCursorVisible(false);
         }
-        
+
+        // Set to true if TextField should be selected automatically on focus
+        if (Boolean.TRUE.equals(textArea.getClientProperty("autoSelectOnFocus"))) {
+            Editable spannable = mEditText.getText();
+            Selection.setSelection(spannable, 0, spannable.length());
+        }
+	    
         /*
         // Leaving this hack here for posterity.  It seems that this manually
         // blinking cursor causes the paste menu to disappear
@@ -1097,10 +1105,6 @@ public class InPlaceEditView extends FrameLayout{
         return mIsEditing && mEditText != null && mEditText.mTextArea != null && mEditText.mTextArea.contains(x, y);
     }
 
-    private synchronized void endEditing(int reason, boolean forceVKBOpen, int actionCode) {
-        endEditing(reason, forceVKBOpen, false, actionCode);
-    }
-
     private Component getNextComponent(Component curr) {
         Form f = curr.getComponentForm();
         if (f != null) {
@@ -1109,11 +1113,19 @@ public class InPlaceEditView extends FrameLayout{
         return null;
     }
 
+    private synchronized void endEditing(int reason, boolean forceVKBOpen, int actionCode) {
+        endEditing(reason, forceVKBOpen, false, actionCode);
+    }
+
+    private synchronized void endEditing(int reason, boolean forceVKBOpen, boolean forceVKBClose, int actionCode) {
+	endEditing(reason, forceVKBOpen, forceVKBClose, actionCode, -1);
+    }
+
     /**
      * Finish the in-place editing of the given text area, release the edit lock, and allow the synchronous call
      * to 'edit' to return.
      */
-    private synchronized void endEditing(int reason, boolean forceVKBOpen, boolean forceVKBClose, int actionCode) {
+    private synchronized void endEditing(int reason, boolean forceVKBOpen, boolean forceVKBClose, int actionCode, int keyEvent) {
         //if (cursorTimer != null) {
         //    cursorTimer.cancel();
         //}
@@ -1159,11 +1171,9 @@ public class InPlaceEditView extends FrameLayout{
         if (reason == REASON_IME_ACTION
                 && ((TextArea) mEditText.mTextArea).getDoneListener() != null
                 && (actionCode == EditorInfo.IME_ACTION_DONE)|| actionCode == EditorInfo.IME_ACTION_SEARCH || actionCode == EditorInfo.IME_ACTION_SEND || actionCode == EditorInfo.IME_ACTION_GO) {
-            ((TextArea) mEditText.mTextArea).fireDoneEvent();
-
+            ((TextArea) mEditText.mTextArea).fireDoneEvent(keyEvent);
         }
         
-
         // Call this in onComplete instead
         //mIsEditing = false;
         mLastEditText = mEditText;
@@ -1248,7 +1258,7 @@ public class InPlaceEditView extends FrameLayout{
                     if (fHasNext && fNext != null) {
                         Display.getInstance().callSerially(new Runnable() {
                             public void run() {
-                                final Form f = fNext.getComponentForm();
+				final Form f = fNext.getComponentForm();
                                 if (f == null) {
                                     return;
                                 }
@@ -1260,7 +1270,8 @@ public class InPlaceEditView extends FrameLayout{
                                         fNext.startEditingAsync();
                                     }
                                 });
-
+				if(EditorInfo.IME_ACTION_NEXT == fActionCode)
+                                    fNext.requestFocus();
                             }
                         });
                     }
@@ -2144,9 +2155,21 @@ public class InPlaceEditView extends FrameLayout{
             // If the user presses the back button, or the menu button
             // we must terminate editing, to allow EDT to handle events
             // again
-            if (keyCode == KeyEvent.KEYCODE_BACK
-                    || keyCode == KeyEvent.KEYCODE_MENU) {
-                endEditing(InPlaceEditView.REASON_SYSTEM_KEY, false, true, 0);
+            switch(keyCode) {
+                case KeyEvent.KEYCODE_BACK:
+                case KeyEvent.KEYCODE_MENU:
+                    endEditing(InPlaceEditView.REASON_SYSTEM_KEY, false, true, 0);
+                    break;
+		case KeyEvent.KEYCODE_ENTER:
+                    if (mEditText.mTextArea != null && mEditText.mTextArea.isSingleLineTextArea())
+                        onEditorAction(EditorInfo.IME_ACTION_DONE);
+                    break;
+                case KeyEvent.KEYCODE_ESCAPE:
+                    endEditing(InPlaceEditView.REASON_IME_ACTION, false, true, EditorInfo.IME_ACTION_DONE, keyCode);
+                    break;
+                case KeyEvent.KEYCODE_TAB:
+                    onEditorAction(EditorInfo.IME_ACTION_NEXT);
+                    break;
             }
 
             return super.onKeyDown(keyCode, event);
